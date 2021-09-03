@@ -43,7 +43,7 @@ Packet:
 
 class State:
     START_FRAME       = "START_FRAME"
-    LENGTH            = "LENGHT"
+    LENGTH            = "LENGTH"
     TFI               = "TFI"
     DATA              = "DATA"
     CHECKSUM          = "CHECKSUM"
@@ -61,8 +61,8 @@ class FrameType:
 frame2string = (
     ['Host to PN532','H2C'],
     ['PN532 to Host','C2H'],
-    ['Acknoledge', 'ACK'],
-    ['Not Acknoledge', 'NACK'],
+    ['Acknowledge', 'ACK'],
+    ['Not Acknowledge', 'NACK'],
     ['Application Error', 'Error']
 )
 ByteData = namedtuple('ByteData', 'ss es data')
@@ -72,7 +72,7 @@ class Decoder(srd.Decoder):
     api_version = 3
     id = 'pn532'
     name = 'PN532'
-    longname = 'PN532 nfc transceiver'
+    longname = 'PN532 NFC transceiver'
     desc = 'PN532 chip command decoder'
     license = 'gplv2+'
     inputs = ['uart']
@@ -86,8 +86,8 @@ class Decoder(srd.Decoder):
     )
     annotations = (
         ('start', ' Start frame'),          #0
-        ('len', 'Data lenght'),             #1
-        ('lcs', 'Data lenght checksum'),    #2
+        ('len', 'Data length'),             #1
+        ('lcs', 'Data length checksum'),    #2
         ('tfi', 'Frame identifier'),        #3
         ('data', 'Packet data'),            #4
         ('dcs', 'Data checksum'),           #5
@@ -110,7 +110,7 @@ class Decoder(srd.Decoder):
 
     def reset(self):
         self.start_frame = deque(maxlen=len(START_FRAME))
-        self.data_lenght = []
+        self.data_length = []
         self.data_packet = []
         self.frame_type = None
         self.data_size = None
@@ -204,30 +204,30 @@ class Decoder(srd.Decoder):
             self.put_at_bytes(self.start_frame, [0, ['Start Frame', 'Start', 'S']])
             self.change_state(State.LENGTH)
 
-    def handle_lenght(self, byte):
-        self.data_lenght.append(byte)
+    def handle_length(self, byte):
+        self.data_length.append(byte)
 
-        if len(self.data_lenght) < 2:   #TODO
+        if len(self.data_length) < 2:   #TODO
             return
 
-        sequence = [x.data for x in self.data_lenght]
+        sequence = [x.data for x in self.data_length]
 
-        if sequence == [0x00, 0xFF]:            #Check if frame is an "acknoledge"
+        if sequence == [0x00, 0xFF]:            #Check if frame is an "acknowledge"
             self.frame_type = FrameType.ACK
             self.change_state(State.END_FRAME)
-        elif sequence == [0xFF, 0x00]:          #Check if frame is "not acknoledge"
+        elif sequence == [0xFF, 0x00]:          #Check if frame is "not acknowledge"
             self.frame_type = FrameType.NACK
             self.change_state(State.END_FRAME)
         elif sequence == [0xFF, 0xFF]:          #Check if frame is "extended"
             pass
         else:
-            self.data_size = self.data_lenght[0].data - 1
-            self.put_at_byte(self.data_lenght[0], [1, [f'Data Lenght: {self.format_value(self.data_size)}', f'Lenght: {self.format_value(self.data_size)}', 'LEN']])
-            if self.checksum(self.data_lenght, 0x00):
-                self.put_at_byte(self.data_lenght[1], [2, ['Data Lenght Checksum: OK', 'Checksum: OK', 'LCS']])
+            self.data_size = self.data_length[0].data - 1
+            self.put_at_byte(self.data_length[0], [1, [f'Data length: {self.format_value(self.data_size)}', f'length: {self.format_value(self.data_size)}', 'LEN']])
+            if self.checksum(self.data_length, 0x00):
+                self.put_at_byte(self.data_length[1], [2, ['Data length Checksum: OK', 'Checksum: OK', 'LCS']])
                 self.change_state(State.TFI)
             else:
-                self.put_at_byte(self.data_lenght[1], [7, ['Checksum Error', 'Error', 'E']])
+                self.put_at_byte(self.data_length[1], [7, ['Checksum Error', 'Error', 'E']])
                 self.change_state(State.END_FRAME)
 
     def handle_tfi(self, byte):
@@ -279,7 +279,7 @@ class Decoder(srd.Decoder):
             handler(self.start_byte.ss, byte.es)
 
         self.start_frame.clear()
-        self.data_lenght = []
+        self.data_length = []
         self.data_packet = []
         self.frame_type = None
         self.data_size = None
@@ -287,9 +287,6 @@ class Decoder(srd.Decoder):
         self.start_byte = None
 
         self.change_state(State.START_FRAME)
-
-
-
 
     def decode(self, ss, es, data):
         ptype, rxtx, pdata = data
