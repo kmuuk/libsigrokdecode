@@ -20,6 +20,25 @@
 ##
 
 import sigrokdecode as srd
+from .lists import standard_commands
+
+def csum8(data):
+    return sum(data) % 256
+
+def crc16(data):
+    poly = 0x1021
+    crc = 0
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            if (crc & 0x8000) != 0:
+                crc = ((crc << 1) ^ poly)
+            else:
+                crc <<= 1
+    return crc & 0xffff
+
+ann_dst, ann_len, ann_src, ann_cmd, ann_data, ann_csum, ann_packet = range(7)
+
 class Decoder(srd.Decoder):
     api_version = 3
     id = 'cctalk'
@@ -31,12 +50,21 @@ class Decoder(srd.Decoder):
     outputs = []
     # ?? tags =
 
-    ## Packet fields:
-    # dest address
-    # data bytes - 0 .. ff
-    # source address
-    # command
-    # checksum
+    annotations = (
+        ('dst', 'Destination address'),
+        ('len', 'Number of data bytes'),
+        ('src', 'Source address'),
+        ('cmd', 'Command Header'),
+        ('data', 'Command Data'),
+        ('csum', 'Packet checksum'),
+        # ccTalk packet description
+        ('packet', 'Packet Info'),
+    )
+
+    annotation_rows = (
+        ('packet', 'Packet Info', (ann_dst, ann_len, ann_src, ann_cmd, ann_data, ann_csum)),
+        ('cmd', 'ccTalk command', (ann_packet,)),
+    )
 
     def __init__(self):
         self.reset()
@@ -56,21 +84,42 @@ class Decoder(srd.Decoder):
             return
 
         # Start building up the current packet byte by byte...
-        self.buf.append(pdata[0])
+        self.buf.append((pdata[0], ss, es))
 
         # ...and keep track of currently collected data length
         buflen = len(self.buf)
-
-        if buflen == 1:
-            return
 
         # Second byte contains packet length, so fill this in...
         if buflen == 2:
             self.len = 2 + pdata[0] + 3
             return
 
+        # TODO: Use timing to detect broken packets
+        # ccTalk spec mentions that inter-byte delay should be no greater than 10ms (at 9600baud)
+
         # ... and check whether we have reached end.
         if buflen == self.len:
-            # TODO: Figure out annotations...
-            print("ccTalk packet:", self.buf)
-            self.reset()
+            self.handle_packet()
+
+    def handle_packet(self):
+        raw = list(b[0] for b in self.buf)
+        # TODO: Figure out how to annotate different types of checksums.. (separate annotation?)
+        # TODO: Handle simple vs standard (and encrypted) packages)
+        if csum8(raw) == 0:
+            pass
+        # Fill in command info...
+        for i in range(4):
+            b, ss, es = self.buf[i]
+            self.put(ss, es, self.out_ann, [i, [f"{self.annotations[i][0]}: {b}"]])
+        # Fill in packet info
+        self.annotate_packet_info()
+        self.reset()
+
+    def annotate_packet_info(self):
+        ## Fill in packet data...
+        cmd = self.buf[3][0]
+        ss = self.buf[0][1]
+        es = self.buf[-1][2]
+        cmd_info = standard_commands.get(cmd, 'Unhandled')
+        # TODO: Add data bytes
+        self.put(ss, es, self.out_ann, [ann_packet, [f"{cmd}: {cmd_info}"]])
