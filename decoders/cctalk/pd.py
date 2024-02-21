@@ -48,7 +48,7 @@ class Decoder(srd.Decoder):
     license = 'gplv2+'
     inputs = ['uart']
     outputs = []
-    # ?? tags =
+    tags = ['Payment']
 
     annotations = (
         ('dst', 'Destination address'),
@@ -62,8 +62,8 @@ class Decoder(srd.Decoder):
     )
 
     annotation_rows = (
-        ('packet', 'Packet Info', (ann_dst, ann_len, ann_src, ann_cmd, ann_data, ann_csum)),
-        ('cmd', 'ccTalk command', (ann_packet,)),
+        ('packet_row', 'Packet Info', (ann_dst, ann_len, ann_src, ann_cmd, ann_data, ann_csum)),
+        ('cmd_row', 'ccTalk command', (ann_packet,)),
     )
 
     def __init__(self):
@@ -77,10 +77,13 @@ class Decoder(srd.Decoder):
         self.out_ann = self.register(srd.OUTPUT_ANN)
 
     def decode(self, ss, es, data):
-        ptype, _, pdata = data
+        ptype, rxtx, pdata = data
 
         # We are only interested in data bytes..
         if ptype != 'DATA':
+            return
+            
+        if rxtx != 0:
             return
 
         # Start building up the current packet byte by byte...
@@ -110,7 +113,10 @@ class Decoder(srd.Decoder):
         # Fill in command info...
         for i in range(4):
             b, ss, es = self.buf[i]
-            self.put(ss, es, self.out_ann, [i, [f"{self.annotations[i][0]}: {b}"]])
+            self.put(ss, es, self.out_ann, [i, ["{}: {}".format(self.annotations[i][0], b)]])
+        ss = self.buf[4][1]
+        es = self.buf[-2][2]
+        self.put(ss, es, self.out_ann, [ann_data, ["data: " + str.join(", ", ("{:02X}".format(b) for b in raw[4:-1]))]])
         # Fill in packet info
         self.annotate_packet_info()
         self.reset()
@@ -122,4 +128,4 @@ class Decoder(srd.Decoder):
         es = self.buf[-1][2]
         cmd_info = standard_commands.get(cmd, 'Unhandled')
         # TODO: Add data bytes
-        self.put(ss, es, self.out_ann, [ann_packet, [f"{cmd}: {cmd_info}"]])
+        self.put(ss, es, self.out_ann, [ann_packet, ["{}: {}".format(cmd, cmd_info)]])
